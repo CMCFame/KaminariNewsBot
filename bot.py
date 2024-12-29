@@ -3,6 +3,7 @@ import os
 import feedparser
 import json
 import asyncio
+import time
 import random
 from datetime import datetime
 from discord.ext import commands, tasks
@@ -389,7 +390,11 @@ async def admin_error(ctx, error):
 
 # Iniciar el bot
 if __name__ == "__main__":
-    TOKEN = 'MTMyMjM2NzYyNzkwOTI2NzQ1Ng.GXE7Zl.afyJYsZfgXKfW_CI6U4Unyrx8I5p1HtOvSgt5w'
+    TOKEN = os.getenv('DISCORD_TOKEN')
+    if not TOKEN:
+        print("Error: No se encontró el token de Discord en las variables de entorno")
+        exit(1)
+        
     while True:
         try:
             bot.run(TOKEN)

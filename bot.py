@@ -30,7 +30,6 @@ GAMING_FEEDS = {
     "Twinfinite": "https://twinfinite.net/feed/",
     "Push Square": "https://www.pushsquare.com/feeds/latest",
     "Gamepur": "https://www.gamepur.com/feed",
-    "GameSkinny": "https://www.gameskinny.com/feed/rss2",
     "Pocket Gamer": "https://pocket4957.rssing.com/chan-78169779/index-latest.php",
     "Siliconera": "https://www.siliconera.com/feed/",
     "Attack of the Fanboy": "https://attackofthefanboy.com/feed/",
@@ -129,14 +128,20 @@ async def fetch_feed(feed_name, feed_url, max_retries=3):
                 delay = min(300, (2 ** attempt) + (random.randint(0, 1000) / 1000))
                 await asyncio.sleep(delay)
             
-            feed = feedparser.parse(feed_url)
+            # Configurar un contexto SSL más permisivo para feedparser
+            import ssl
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
             
-            # Manejar redirecciones
+            feed = feedparser.parse(feed_url, handlers=[ssl_context.wrap_socket])
+            
+            # Manejar redirecciones y errores
             if hasattr(feed, 'status'):
                 if feed.status in [301, 302, 307, 308]:  # Códigos de redirección
                     if 'href' in feed and feed.href != feed_url:
                         print(f"Redirigiendo {feed_name} a: {feed.href}")
-                        return await try_fetch_with_backoff(0)  # Reintentar con la nueva URL
+                        return await try_fetch_with_backoff(0)
                 elif feed.status == 429:  # Too Many Requests
                     if attempt < max_retries:
                         print(f"Rate limit alcanzado para {feed_name}, reintentando...")
@@ -266,6 +271,14 @@ async def on_ready():
     print(f'{bot.user} ha iniciado sesión')
     if not check_feeds.is_running():
         check_feeds.start()
+
+@bot.event
+async def on_resumed():
+    print('Bot reconectado después de una desconexión')
+
+@bot.event
+async def on_connect():
+    print('Bot conectado a Discord')
 
 @bot.event
 async def on_guild_join(guild):
@@ -411,6 +424,9 @@ if __name__ == "__main__":
     if not TOKEN:
         print("Error: No se encontró el token de Discord en las variables de entorno")
         exit(1)
+        
+    # Configurar el cliente para tener un heartbeat más frecuente
+    discord.Client.heartbeat_interval = 20  # segundos
         
     while True:
         try:

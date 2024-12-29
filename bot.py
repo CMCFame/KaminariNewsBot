@@ -30,6 +30,7 @@ GAMING_FEEDS = {
     "Twinfinite": "https://twinfinite.net/feed/",
     "Push Square": "https://www.pushsquare.com/feeds/latest",
     "Gamepur": "https://www.gamepur.com/feed",
+    "GameSkinny": "https://www.gameskinny.com/feed/rss2",
     "Pocket Gamer": "https://pocket4957.rssing.com/chan-78169779/index-latest.php",
     "Siliconera": "https://www.siliconera.com/feed/",
     "Attack of the Fanboy": "https://attackofthefanboy.com/feed/",
@@ -183,15 +184,25 @@ async def fetch_feed(feed_name, feed_url, max_retries=3):
 
                 # Buscar imagen en diferentes ubicaciones comunes del feed
                 image_url = None
-                if 'media_thumbnail' in entry:
-                    image_url = entry['media_thumbnail'][0].get('url')
-                elif 'media_content' in entry:
-                    image_url = entry['media_content'][0].get('url')
-                elif hasattr(entry, 'links'):
-                    for link in entry.links:
-                        if link.get('type', '').startswith('image/'):
-                            image_url = link.get('href')
-                            break
+                try:
+                    if 'media_thumbnail' in entry and entry['media_thumbnail']:
+                        image_url = entry['media_thumbnail'][0].get('url')
+                    elif 'media_content' in entry and entry['media_content']:
+                        image_url = entry['media_content'][0].get('url')
+                    elif hasattr(entry, 'links'):
+                        for link in entry.links:
+                            if isinstance(link, dict) and link.get('type', '').startswith('image/'):
+                                image_url = link.get('href')
+                                if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
+                                    image_url = None
+                                break
+
+                    # Verificar que la URL de la imagen sea válida
+                    if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
+                        image_url = None
+                except Exception as e:
+                    print(f"Error al procesar imagen para {feed_name}: {str(e)}")
+                    image_url = None
 
                 embed = discord.Embed(
                     title=title,
@@ -343,8 +354,15 @@ async def actualizar(ctx):
             for embed in news_items:
                 try:
                     await channel.send(embed=embed)
-                    # Esperar entre 2 y 4 segundos entre mensajes para evitar rate limits
                     await asyncio.sleep(random.uniform(2, 4))
+                except discord.HTTPException as e:
+                    print(f"Error HTTP al enviar noticia de {feed_name} en {ctx.guild.name}: {str(e)}")
+                    if e.code == 50035:  # Invalid Form Body
+                        print(f"Detalles del embed que causó el error:")
+                        print(f"Título: {embed.title}")
+                        print(f"URL: {embed.url}")
+                        if embed.thumbnail:
+                            print(f"Thumbnail URL: {embed.thumbnail.url}")
                 except Exception as e:
                     print(f"Error al enviar noticia de {feed_name} en {ctx.guild.name}: {str(e)}")
 

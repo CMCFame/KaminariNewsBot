@@ -30,7 +30,6 @@ GAMING_FEEDS = {
     "Twinfinite": "https://twinfinite.net/feed/",
     "Push Square": "https://www.pushsquare.com/feeds/latest",
     "Gamepur": "https://www.gamepur.com/feed",
-    "GameSkinny": "https://www.gameskinny.com/feed/rss2",
     "Pocket Gamer": "https://pocket4957.rssing.com/chan-78169779/index-latest.php",
     "Siliconera": "https://www.siliconera.com/feed/",
     "Attack of the Fanboy": "https://attackofthefanboy.com/feed/",

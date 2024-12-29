@@ -130,11 +130,10 @@ async def fetch_feed(feed_name, feed_url, max_retries=3):
             
             # Configurar un contexto SSL más permisivo para feedparser
             import ssl
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+            if hasattr(ssl, '_create_unverified_context'):
+                ssl._create_default_https_context = ssl._create_unverified_context
             
-            feed = feedparser.parse(feed_url, handlers=[ssl_context.wrap_socket])
+            feed = feedparser.parse(feed_url)
             
             # Manejar redirecciones y errores
             if hasattr(feed, 'status'):

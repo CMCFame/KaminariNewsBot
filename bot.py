@@ -175,7 +175,15 @@ async def fetch_feed(feed_name, feed_url, max_retries=3):
             if news_cache.is_new_entry(feed_name, entry_id):
                 print(f"Nueva entrada encontrada en {feed_name}")
                 title = entry.get('title', 'Sin título')
-                link = entry.get('link', '#')
+                
+                # Arreglar el manejo de URLs
+                if isinstance(entry.get('link'), dict) and 'href' in entry.get('link'):
+                    link = entry.get('link')['href']
+                elif isinstance(entry.get('links', [{}])[0], dict) and 'href' in entry.get('links', [{}])[0]:
+                    link = entry.get('links')[0]['href']
+                else:
+                    link = entry.get('link', '#')
+
                 published = entry.get('published', 'Fecha no disponible')
                 
                 # Obtener categorías

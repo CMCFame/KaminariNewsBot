@@ -133,9 +133,28 @@ async def fetch_feed(feed_name, feed_url):
             print(f"Error al obtener {feed_name}: Status {feed.status}")
             return []
 
-        # Retornar solo las primeras 5 entradas en formato raw
+        # Convertir las entradas a diccionarios y retornar solo las primeras 5
         print(f"Procesando {feed_name}: {len(feed.entries)} entradas encontradas")
-        return feed.entries[:5]
+        entries = []
+        for entry in feed.entries[:5]:
+            entry_dict = {}
+            # Extraer los campos que necesitamos de forma segura
+            entry_dict['id'] = getattr(entry, 'id', '') or getattr(entry, 'guid', '') or getattr(entry, 'link', '')
+            entry_dict['title'] = getattr(entry, 'title', 'Sin título')
+            entry_dict['link'] = getattr(entry, 'link', '#')
+            entry_dict['published'] = getattr(entry, 'published', 'Fecha no disponible')
+            
+            # Procesar categorías
+            categories = []
+            if hasattr(entry, 'tags'):
+                categories = [tag.get('term', '') for tag in entry.tags]
+            elif hasattr(entry, 'categories'):
+                categories = entry.categories
+            entry_dict['categories'] = categories
+
+            entries.append(entry_dict)
+        
+        return entries
     except Exception as e:
         print(f"Error al procesar {feed_name}: {str(e)}")
         return []
@@ -164,17 +183,15 @@ async def check_feeds():
         for feed_name, feed_url in GAMING_FEEDS.items():
             try:
                 # Obtener noticias
-                raw_entries = await fetch_feed(feed_name, feed_url)
-                if not raw_entries:
+                entries = await fetch_feed(feed_name, feed_url)
+                if not entries:
                     continue
 
                 # Filtrar y procesar noticias nuevas
                 news_items = []
-                for entry in raw_entries:
-                    if isinstance(entry, dict):  # Verificar que sea un diccionario
-                        entry_id = entry.get('id', '') or entry.get('link', '')
-                        if news_cache.is_new_entry(feed_name, entry_id):
-                            news_items.append(entry)
+                for entry in entries:
+                    if news_cache.is_new_entry(feed_name, entry['id']):
+                        news_items.append(entry)
             
                 if news_items:
                     news_found = True
@@ -186,24 +203,18 @@ async def check_feeds():
                         # Enviar noticias
                         for item in news_items:
                             embed = discord.Embed(
-                                title=item.get('title', 'Sin título'),
-                                url=item.get('link', '#'),
+                                title=item['title'],
+                                url=item['link'],
                                 color=discord.Color.blue()
                             )
                             
                             # Agregar categorías
-                            categories = []
-                            if 'tags' in item:
-                                categories = [tag['term'] for tag in item.get('tags', [])]
-                            elif 'categories' in item:
-                                categories = item.get('categories', [])
-                            categories_str = ', '.join(categories) if categories else 'Sin categorías'
-                            if categories_str:
+                            if item['categories']:
+                                categories_str = ', '.join(item['categories'])
                                 embed.add_field(name="Categorías", value=categories_str, inline=False)
                             
                             # Agregar pie de página
-                            published = item.get('published', 'Fecha no disponible')
-                            embed.set_footer(text=f"Fuente: {feed_name} | Publicado: {published}")
+                            embed.set_footer(text=f"Fuente: {feed_name} | Publicado: {item['published']}")
 
                             await channel.send(embed=embed)
                             await asyncio.sleep(random.uniform(2, 4))

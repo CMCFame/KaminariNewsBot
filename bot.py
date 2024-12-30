@@ -1,26 +1,4 @@
-@bot.command()
-async def verificar_permisos(ctx):
-    """Verifica los permisos del bot en el canal actual"""
-    perms = ctx.channel.permissions_for(ctx.guild.me)
-    
-    embed = discord.Embed(
-        title="Permisos del Bot",
-        color=discord.Color.blue()
-    )
-    
-    permisos = {
-        "Enviar Mensajes": perms.send_messages,
-        "Incrustar Enlaces": perms.embed_links,
-        "Adjuntar Archivos": perms.attach_files,
-        "Leer Historial": perms.read_message_history,
-        "Usar Enlaces Externos": perms.use_external_emojis
-    }
-    
-    for perm, value in permisos.items():
-        status = "✅" if value else "❌"
-        embed.add_field(name=perm, value=status, inline=True)
-    
-    await ctx.send(embed=embed)import discord
+import discord
 import os
 import feedparser
 import json
@@ -459,6 +437,30 @@ async def forzar_actualizar(ctx):
     news_cache.clear_cache()  # Usa el nuevo método
     await ctx.send("🔄 Cache limpiado. Forzando actualización de noticias...")
     await actualizar(ctx)
+
+@bot.command()
+async def verificar_permisos(ctx):
+    """Verifica los permisos del bot en el canal actual"""
+    perms = ctx.channel.permissions_for(ctx.guild.me)
+    
+    embed = discord.Embed(
+        title="Permisos del Bot",
+        color=discord.Color.blue()
+    )
+    
+    permisos = {
+        "Enviar Mensajes": perms.send_messages,
+        "Incrustar Enlaces": perms.embed_links,
+        "Adjuntar Archivos": perms.attach_files,
+        "Leer Historial": perms.read_message_history,
+        "Usar Enlaces Externos": perms.use_external_emojis
+    }
+    
+    for perm, value in permisos.items():
+        status = "✅" if value else "❌"
+        embed.add_field(name=perm, value=status, inline=True)
+    
+    await ctx.send(embed=embed)
 
 @configurar_canal.error
 @desactivar_noticias.error

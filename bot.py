@@ -474,14 +474,33 @@ if __name__ == "__main__":
     if not TOKEN:
         print("Error: No se encontró el token de Discord en las variables de entorno")
         exit(1)
-        
-    # Configurar el cliente para tener un heartbeat más frecuente
-    discord.Client.heartbeat_interval = 20  # segundos
-        
-    while True:
+    
+    max_retries = 5
+    retry_count = 0
+    
+    while retry_count < max_retries:
         try:
-            bot.run(TOKEN)
+            print(f"Iniciando el bot (intento {retry_count + 1} de {max_retries})...")
+            # Intentar la conexión
+            bot.run(TOKEN, reconnect=True)
+            # Si llegamos aquí, la conexión fue exitosa
+            print("Bot conectado exitosamente")
+            break
+        except discord.LoginFailure:
+            print("Error: Token de Discord inválido o expirado")
+            exit(1)  # Salir inmediatamente si el token es inválido
+        except discord.ConnectionClosed as e:
+            retry_count += 1
+            print(f"Error de conexión (intento {retry_count}): {e}")
+            if retry_count < max_retries:
+                print("Reintentando en 30 segundos...")
+                time.sleep(30)
         except Exception as e:
-            print(f"Error al conectar: {e}")
-            print("Reintentando en 30 segundos...")
-            time.sleep(30)
+            retry_count += 1
+            print(f"Error inesperado (intento {retry_count}): {type(e).__name__} - {str(e)}")
+            if retry_count < max_retries:
+                print("Reintentando en 30 segundos...")
+                time.sleep(30)
+    
+    if retry_count >= max_retries:
+        print("Número máximo de reintentos alcanzado. Deteniendo el bot.")

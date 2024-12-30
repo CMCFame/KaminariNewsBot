@@ -33,7 +33,8 @@ GAMING_FEEDS = {
     "Pocket Gamer": "https://pocket4957.rssing.com/chan-78169779/index-latest.php",
     "Siliconera": "https://www.siliconera.com/feed/",
     "Attack of the Fanboy": "https://attackofthefanboy.com/feed/",
-    "Nintendo Everything": "https://nintendoeverything.com/feed/"
+    "Nintendo Everything": "https://nintendoeverything.com/feed/",
+    "VGC": "https://www.videogameschronicle.com/category/news/feed/"
 }
 
 UPDATE_INTERVAL = 10800  # 3 horas en segundos
@@ -261,12 +262,21 @@ async def check_feeds():
             news_items = await fetch_feed(feed_name, feed_url)
             if news_items:
                 news_found = True
-                for embed in news_items:
-                    try:
+                try:
+                    # Enviar encabezado
+                    header = f"▓▓▓▓▓▓▓▓▓▓ Noticias de {feed_name} ▓▓▓▓▓▓▓▓▓▓"
+                    await channel.send(f"**{header}**")
+                    
+                    # Enviar noticias
+                    for embed in news_items:
                         await channel.send(embed=embed)
-                        await asyncio.sleep(1)
-                    except Exception as e:
-                        print(f"Error al enviar noticia de {feed_name} en {guild.name}: {str(e)}")
+                        await asyncio.sleep(random.uniform(2, 4))
+                    
+                    # Espacio entre fuentes
+                    await channel.send("_ _")
+                except Exception as e:
+                    print(f"Error al enviar noticias de {feed_name} en {guild.name}: {str(e)}")
+                    continue
 
         if not news_found:
             await channel.send("No se encontraron noticias nuevas en esta actualización.")

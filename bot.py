@@ -268,7 +268,14 @@ async def check_feeds():
 
         news_found = False
         for feed_name, feed_url in GAMING_FEEDS.items():
-            news_items = await fetch_feed(feed_name, feed_url)
+            # Obtener las noticias
+            news_items = []
+            feed_data = await fetch_feed(feed_name, feed_url)
+            if feed_data and isinstance(feed_data, list):
+                for item in feed_data:
+                    if news_cache.is_new_entry(guild.id, feed_name, item.get('id')):
+                        news_items.append(item)
+            
             if news_items:
                 news_found = True
                 try:
@@ -426,14 +433,14 @@ async def limpiar_cache(ctx, fuente=None):
                 break
         
         if fuente_encontrada:
-            news_cache.clear_cache(fuente_encontrada)
-            await ctx.send(f"🧹 Cache limpiado para la fuente: {fuente_encontrada}")
+            news_cache.clear_cache(ctx.guild.id, fuente_encontrada)
+            await ctx.send(f"🧹 Cache limpiado para la fuente: {fuente_encontrada} en este servidor")
         else:
             fuentes_disponibles = "\n".join([f"• {name}" for name in GAMING_FEEDS.keys()])
             await ctx.send(f"❌ Fuente no encontrada. Las fuentes disponibles son:\n{fuentes_disponibles}")
     else:
-        news_cache.clear_cache()
-        await ctx.send("🧹 Cache limpiado completamente")
+        news_cache.clear_cache(ctx.guild.id)
+        await ctx.send("🧹 Cache limpiado completamente para este servidor")
 
 @bot.command()
 async def forzar_actualizar(ctx):

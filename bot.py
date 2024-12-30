@@ -33,7 +33,8 @@ GAMING_FEEDS = {
     "Pocket Gamer": "https://pocket4957.rssing.com/chan-78169779/index-latest.php",
     "Siliconera": "https://www.siliconera.com/feed/",
     "Attack of the Fanboy": "https://attackofthefanboy.com/feed/",
-    "Nintendo Everything": "https://nintendoeverything.com/feed/"
+    "Nintendo Everything": "https://nintendoeverything.com/feed/",
+    "VGC": "https://www.videogameschronicle.com/category/news/feed/"
 }
 
 UPDATE_INTERVAL = 10800  # 3 horas en segundos
@@ -120,95 +121,21 @@ def format_time(dt):
     """Formatea la hora en formato 24h"""
     return dt.strftime("%H:%M")
 
-async def fetch_feed(feed_name, feed_url, max_retries=3):
-    async def try_fetch_with_backoff(attempt):
-        try:
-            # Añadir retraso exponencial entre intentos
-            if attempt > 0:
-                delay = min(300, (2 ** attempt) + (random.randint(0, 1000) / 1000))
-                await asyncio.sleep(delay)
-            
-            feed = feedparser.parse(feed_url)
-            
-            # Manejar redirecciones
-            if hasattr(feed, 'status'):
-                if feed.status in [301, 302, 307, 308]:  # Códigos de redirección
-                    if 'href' in feed and feed.href != feed_url:
-                        print(f"Redirigiendo {feed_name} a: {feed.href}")
-                        return await try_fetch_with_backoff(0)  # Reintentar con la nueva URL
-                elif feed.status == 429:  # Too Many Requests
-                    if attempt < max_retries:
-                        print(f"Rate limit alcanzado para {feed_name}, reintentando...")
-                        return await try_fetch_with_backoff(attempt + 1)
-                    else:
-                        print(f"Máximo de reintentos alcanzado para {feed_name}")
-                        return None
-                elif feed.status != 200:
-                    print(f"Error al obtener {feed_name}: Status {feed.status}")
-                    return None
-            
-            return feed
-            
-        except Exception as e:
-            print(f"Error al procesar {feed_name}: {str(e)}")
-            if attempt < max_retries:
-                return await try_fetch_with_backoff(attempt + 1)
-            return None
-
+async def fetch_feed(feed_name, feed_url):
     try:
-        feed = await try_fetch_with_backoff(0)
-        if not feed:
+        # Configurar un contexto SSL más permisivo para feedparser
+        import ssl
+        if hasattr(ssl, '_create_unverified_context'):
+            ssl._create_default_https_context = ssl._create_unverified_context
+        
+        feed = feedparser.parse(feed_url)
+        if hasattr(feed, 'status') and feed.status != 200:
+            print(f"Error al obtener {feed_name}: Status {feed.status}")
             return []
 
-        news_items = []
+        # Retornar solo las primeras 5 entradas en formato raw
         print(f"Procesando {feed_name}: {len(feed.entries)} entradas encontradas")
-        
-        for entry in feed.entries[:5]:
-            entry_id = entry.get('id', '') or entry.get('guid', '') or entry.get('link', '')
-            print(f"Verificando entrada: {entry_id}")
-            
-            if news_cache.is_new_entry(feed_name, entry_id):
-                print(f"Nueva entrada encontrada en {feed_name}")
-                title = entry.get('title', 'Sin título')
-                link = entry.get('link', '#')
-                published = entry.get('published', 'Fecha no disponible')
-                
-                # Obtener categorías
-                categories = []
-                if 'tags' in entry:
-                    categories = [tag['term'] for tag in entry.get('tags', [])]
-                elif 'categories' in entry:
-                    categories = entry.get('categories', [])
-                categories_str = ', '.join(categories) if categories else 'Sin categorías'
-
-                # Buscar imagen en diferentes ubicaciones comunes del feed
-                image_url = None
-                if 'media_thumbnail' in entry:
-                    image_url = entry['media_thumbnail'][0].get('url')
-                elif 'media_content' in entry:
-                    image_url = entry['media_content'][0].get('url')
-                elif hasattr(entry, 'links'):
-                    for link in entry.links:
-                        if link.get('type', '').startswith('image/'):
-                            image_url = link.get('href')
-                            break
-
-                embed = discord.Embed(
-                    title=title,
-                    url=link,
-                    color=discord.Color.blue()
-                )
-                embed.set_footer(text=f"Fuente: {feed_name} | Publicado: {published}")
-                if categories_str:
-                    embed.add_field(name="Categorías", value=categories_str, inline=False)
-                if image_url:
-                    embed.set_thumbnail(url=image_url)
-
-                news_items.append(embed)
-            else:
-                print(f"Entrada ya existe en caché: {entry_id}")
-
-        return news_items
+        return feed.entries[:5]
     except Exception as e:
         print(f"Error al procesar {feed_name}: {str(e)}")
         return []
@@ -235,15 +162,61 @@ async def check_feeds():
 
         news_found = False
         for feed_name, feed_url in GAMING_FEEDS.items():
-            news_items = await fetch_feed(feed_name, feed_url)
-            if news_items:
-                news_found = True
-                for embed in news_items:
+            try:
+                # Obtener noticias
+                raw_entries = await fetch_feed(feed_name, feed_url)
+                if not raw_entries:
+                    continue
+
+                # Filtrar y procesar noticias nuevas
+                news_items = []
+                for entry in raw_entries:
+                    if isinstance(entry, dict):  # Verificar que sea un diccionario
+                        entry_id = entry.get('id', '') or entry.get('link', '')
+                        if news_cache.is_new_entry(feed_name, entry_id):
+                            news_items.append(entry)
+            
+                if news_items:
+                    news_found = True
                     try:
-                        await channel.send(embed=embed)
-                        await asyncio.sleep(1)
+                        # Enviar encabezado
+                        header = f"▓▓▓▓▓▓▓▓▓▓ Noticias de {feed_name} ▓▓▓▓▓▓▓▓▓▓"
+                        await channel.send(f"**{header}**")
+                        
+                        # Enviar noticias
+                        for item in news_items:
+                            embed = discord.Embed(
+                                title=item.get('title', 'Sin título'),
+                                url=item.get('link', '#'),
+                                color=discord.Color.blue()
+                            )
+                            
+                            # Agregar categorías
+                            categories = []
+                            if 'tags' in item:
+                                categories = [tag['term'] for tag in item.get('tags', [])]
+                            elif 'categories' in item:
+                                categories = item.get('categories', [])
+                            categories_str = ', '.join(categories) if categories else 'Sin categorías'
+                            if categories_str:
+                                embed.add_field(name="Categorías", value=categories_str, inline=False)
+                            
+                            # Agregar pie de página
+                            published = item.get('published', 'Fecha no disponible')
+                            embed.set_footer(text=f"Fuente: {feed_name} | Publicado: {published}")
+
+                            await channel.send(embed=embed)
+                            await asyncio.sleep(random.uniform(2, 4))
+                        
+                        # Espacio entre fuentes
+                        await channel.send("_ _")
                     except Exception as e:
-                        print(f"Error al enviar noticia de {feed_name} en {guild.name}: {str(e)}")
+                        print(f"Error al enviar noticias de {feed_name} en {guild.name}: {str(e)}")
+                        continue
+
+            except Exception as e:
+                print(f"Error procesando feed {feed_name}: {str(e)}")
+                continue
 
         if not news_found:
             await channel.send("No se encontraron noticias nuevas en esta actualización.")
@@ -255,6 +228,14 @@ async def on_ready():
     print(f'{bot.user} ha iniciado sesión')
     if not check_feeds.is_running():
         check_feeds.start()
+
+@bot.event
+async def on_resumed():
+    print('Bot reconectado después de una desconexión')
+
+@bot.event
+async def on_connect():
+    print('Bot conectado a Discord')
 
 @bot.event
 async def on_guild_join(guild):
@@ -271,7 +252,11 @@ async def on_guild_join(guild):
             continue
 
 @bot.command()
-@commands.has_permissions(administrator=True)
+@commands.check_any(
+    commands.has_permissions(administrator=True),
+    commands.has_permissions(manage_channels=True),
+    commands.has_permissions(manage_guild=True)
+)
 async def configurar_canal(ctx):
     """Configura el canal actual como el canal de noticias"""
     server_config.set_news_channel(ctx.guild.id, ctx.channel.id)
@@ -343,8 +328,15 @@ async def actualizar(ctx):
             for embed in news_items:
                 try:
                     await channel.send(embed=embed)
-                    # Esperar entre 2 y 4 segundos entre mensajes para evitar rate limits
                     await asyncio.sleep(random.uniform(2, 4))
+                except discord.HTTPException as e:
+                    print(f"Error HTTP al enviar noticia de {feed_name} en {ctx.guild.name}: {str(e)}")
+                    if e.code == 50035:  # Invalid Form Body
+                        print(f"Detalles del embed que causó el error:")
+                        print(f"Título: {embed.title}")
+                        print(f"URL: {embed.url}")
+                        if embed.thumbnail:
+                            print(f"Thumbnail URL: {embed.thumbnail.url}")
                 except Exception as e:
                     print(f"Error al enviar noticia de {feed_name} en {ctx.guild.name}: {str(e)}")
 
@@ -365,14 +357,14 @@ async def limpiar_cache(ctx, fuente=None):
                 break
         
         if fuente_encontrada:
-            news_cache.clear_cache(fuente_encontrada)
-            await ctx.send(f"🧹 Cache limpiado para la fuente: {fuente_encontrada}")
+            news_cache.clear_cache(ctx.guild.id, fuente_encontrada)
+            await ctx.send(f"🧹 Cache limpiado para la fuente: {fuente_encontrada} en este servidor")
         else:
             fuentes_disponibles = "\n".join([f"• {name}" for name in GAMING_FEEDS.keys()])
             await ctx.send(f"❌ Fuente no encontrada. Las fuentes disponibles son:\n{fuentes_disponibles}")
     else:
-        news_cache.clear_cache()
-        await ctx.send("🧹 Cache limpiado completamente")
+        news_cache.clear_cache(ctx.guild.id)
+        await ctx.send("🧹 Cache limpiado completamente para este servidor")
 
 @bot.command()
 async def forzar_actualizar(ctx):
@@ -381,11 +373,35 @@ async def forzar_actualizar(ctx):
     await ctx.send("🔄 Cache limpiado. Forzando actualización de noticias...")
     await actualizar(ctx)
 
+@bot.command()
+async def verificar_permisos(ctx):
+    """Verifica los permisos del bot en el canal actual"""
+    perms = ctx.channel.permissions_for(ctx.guild.me)
+    
+    embed = discord.Embed(
+        title="Permisos del Bot",
+        color=discord.Color.blue()
+    )
+    
+    permisos = {
+        "Enviar Mensajes": perms.send_messages,
+        "Incrustar Enlaces": perms.embed_links,
+        "Adjuntar Archivos": perms.attach_files,
+        "Leer Historial": perms.read_message_history,
+        "Usar Enlaces Externos": perms.use_external_emojis
+    }
+    
+    for perm, value in permisos.items():
+        status = "✅" if value else "❌"
+        embed.add_field(name=perm, value=status, inline=True)
+    
+    await ctx.send(embed=embed)
+
 @configurar_canal.error
 @desactivar_noticias.error
 async def admin_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Necesitas permisos de administrador para usar este comando.")
+        await ctx.send("❌ Necesitas permisos de administrador, gestión de canales o gestión del servidor para usar este comando.")
 
 # Iniciar el bot
 if __name__ == "__main__":
@@ -393,11 +409,33 @@ if __name__ == "__main__":
     if not TOKEN:
         print("Error: No se encontró el token de Discord en las variables de entorno")
         exit(1)
-        
-    while True:
+    
+    max_retries = 5
+    retry_count = 0
+    
+    while retry_count < max_retries:
         try:
-            bot.run(TOKEN)
+            print(f"Iniciando el bot (intento {retry_count + 1} de {max_retries})...")
+            # Intentar la conexión
+            bot.run(TOKEN, reconnect=True)
+            # Si llegamos aquí, la conexión fue exitosa
+            print("Bot conectado exitosamente")
+            break
+        except discord.LoginFailure:
+            print("Error: Token de Discord inválido o expirado")
+            exit(1)  # Salir inmediatamente si el token es inválido
+        except discord.ConnectionClosed as e:
+            retry_count += 1
+            print(f"Error de conexión (intento {retry_count}): {e}")
+            if retry_count < max_retries:
+                print("Reintentando en 30 segundos...")
+                time.sleep(30)
         except Exception as e:
-            print(f"Error al conectar: {e}")
-            print("Reintentando en 30 segundos...")
-            time.sleep(30)
+            retry_count += 1
+            print(f"Error inesperado (intento {retry_count}): {type(e).__name__} - {str(e)}")
+            if retry_count < max_retries:
+                print("Reintentando en 30 segundos...")
+                time.sleep(30)
+    
+    if retry_count >= max_retries:
+        print("Número máximo de reintentos alcanzado. Deteniendo el bot.")

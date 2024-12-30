@@ -1,4 +1,26 @@
-import discord
+@bot.command()
+async def verificar_permisos(ctx):
+    """Verifica los permisos del bot en el canal actual"""
+    perms = ctx.channel.permissions_for(ctx.guild.me)
+    
+    embed = discord.Embed(
+        title="Permisos del Bot",
+        color=discord.Color.blue()
+    )
+    
+    permisos = {
+        "Enviar Mensajes": perms.send_messages,
+        "Incrustar Enlaces": perms.embed_links,
+        "Adjuntar Archivos": perms.attach_files,
+        "Leer Historial": perms.read_message_history,
+        "Usar Enlaces Externos": perms.use_external_emojis
+    }
+    
+    for perm, value in permisos.items():
+        status = "✅" if value else "❌"
+        embed.add_field(name=perm, value=status, inline=True)
+    
+    await ctx.send(embed=embed)import discord
 import os
 import feedparser
 import json
@@ -177,13 +199,22 @@ async def fetch_feed(feed_name, feed_url, max_retries=3):
                 print(f"Nueva entrada encontrada en {feed_name}")
                 title = entry.get('title', 'Sin título')
                 
-                # Arreglar el manejo de URLs
-                if isinstance(entry.get('link'), dict) and 'href' in entry.get('link'):
-                    link = entry.get('link')['href']
-                elif isinstance(entry.get('links', [{}])[0], dict) and 'href' in entry.get('links', [{}])[0]:
-                    link = entry.get('links')[0]['href']
+                # Procesar la URL del enlace
+                if isinstance(entry.get('link'), dict):
+                    if 'href' in entry.get('link'):
+                        link = entry.get('link')['href']
+                elif isinstance(entry.get('links', [{}])[0], dict):
+                    link = entry.get('links')[0].get('href', '#')
                 else:
                     link = entry.get('link', '#')
+
+                # Asegurarse de que la URL sea una cadena válida
+                if isinstance(link, dict) and 'href' in link:
+                    link = link['href']
+                
+                # Eliminar parámetros UTM si existen
+                if '?' in link:
+                    link = link.split('?')[0]
 
                 published = entry.get('published', 'Fecha no disponible')
                 

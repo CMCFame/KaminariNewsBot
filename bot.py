@@ -321,7 +321,11 @@ async def on_guild_join(guild):
             continue
 
 @bot.command()
-@commands.has_permissions(administrator=True)
+@commands.check_any(
+    commands.has_permissions(administrator=True),
+    commands.has_permissions(manage_channels=True),
+    commands.has_permissions(manage_guild=True)
+)
 async def configurar_canal(ctx):
     """Configura el canal actual como el canal de noticias"""
     server_config.set_news_channel(ctx.guild.id, ctx.channel.id)
@@ -466,7 +470,7 @@ async def verificar_permisos(ctx):
 @desactivar_noticias.error
 async def admin_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Necesitas permisos de administrador para usar este comando.")
+        await ctx.send("❌ Necesitas permisos de administrador, gestión de canales o gestión del servidor para usar este comando.")
 
 # Iniciar el bot
 if __name__ == "__main__":

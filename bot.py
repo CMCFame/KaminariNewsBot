@@ -5,8 +5,15 @@ import json
 import asyncio
 import time
 import random
+import logging
 from datetime import datetime
 from discord.ext import commands, tasks
+
+# Configuración del logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Configuración del bot de Discord
 intents = discord.Intents.default()
@@ -37,6 +44,8 @@ GAMING_FEEDS = {
 }
 
 UPDATE_INTERVAL = 10800  # 3 horas en segundos
+MESSAGE_DELAY = (2, 4)  # Rango de delay entre mensajes en segundos
+MAX_CACHE_ENTRIES = 100  # Máximo número de entradas en caché por feed
 
 class ServerConfig:
     def __init__(self, config_file="server_config.json"):
@@ -86,6 +95,9 @@ class NewsCache:
             return {}
 
     def _save_cache(self):
+        # Limitar el tamaño del caché por feed
+        for feed_name in self.cache:
+            self.cache[feed_name] = self.cache[feed_name][-MAX_CACHE_ENTRIES:]
         with open(self.cache_file, 'w') as f:
             json.dump(self.cache, f)
 
@@ -98,8 +110,6 @@ class NewsCache:
 
         if entry_id not in self.cache[feed_name]:
             self.cache[feed_name].append(entry_id)
-            # Mantener solo los últimos 50 IDs
-            self.cache[feed_name] = self.cache[feed_name][-50:]
             self._save_cache()
             return True
         return False
@@ -123,34 +133,32 @@ def format_time(dt):
 async def fetch_feed(feed_name, feed_url, max_retries=3):
     async def try_fetch_with_backoff(attempt):
         try:
-            # Añadir retraso exponencial entre intentos
             if attempt > 0:
                 delay = min(300, (2 ** attempt) + (random.randint(0, 1000) / 1000))
                 await asyncio.sleep(delay)
             
             feed = feedparser.parse(feed_url)
             
-            # Manejar redirecciones
             if hasattr(feed, 'status'):
                 if feed.status in [301, 302, 307, 308]:  # Códigos de redirección
                     if 'href' in feed and feed.href != feed_url:
-                        print(f"Redirigiendo {feed_name} a: {feed.href}")
-                        return await try_fetch_with_backoff(0)  # Reintentar con la nueva URL
+                        logging.info(f"Redirigiendo {feed_name} a: {feed.href}")
+                        return await try_fetch_with_backoff(0)
                 elif feed.status == 429:  # Too Many Requests
                     if attempt < max_retries:
-                        print(f"Rate limit alcanzado para {feed_name}, reintentando...")
+                        logging.warning(f"Rate limit alcanzado para {feed_name}, reintentando...")
                         return await try_fetch_with_backoff(attempt + 1)
                     else:
-                        print(f"Máximo de reintentos alcanzado para {feed_name}")
+                        logging.error(f"Máximo de reintentos alcanzado para {feed_name}")
                         return None
                 elif feed.status != 200:
-                    print(f"Error al obtener {feed_name}: Status {feed.status}")
+                    logging.error(f"Error al obtener {feed_name}: Status {feed.status}")
                     return None
             
             return feed
             
         except Exception as e:
-            print(f"Error al procesar {feed_name}: {str(e)}")
+            logging.error(f"Error al procesar {feed_name}: {str(e)}")
             if attempt < max_retries:
                 return await try_fetch_with_backoff(attempt + 1)
             return None
@@ -161,14 +169,14 @@ async def fetch_feed(feed_name, feed_url, max_retries=3):
             return []
 
         news_items = []
-        print(f"Procesando {feed_name}: {len(feed.entries)} entradas encontradas")
+        logging.info(f"Procesando {feed_name}: {len(feed.entries)} entradas encontradas")
         
         for entry in feed.entries[:5]:
             entry_id = entry.get('id', '') or entry.get('guid', '') or entry.get('link', '')
-            print(f"Verificando entrada: {entry_id}")
+            logging.debug(f"Verificando entrada: {entry_id}")
             
             if news_cache.is_new_entry(feed_name, entry_id):
-                print(f"Nueva entrada encontrada en {feed_name}")
+                logging.info(f"Nueva entrada encontrada en {feed_name}")
                 title = entry.get('title', 'Sin título')
                 link = entry.get('link', '#')
                 published = entry.get('published', 'Fecha no disponible')
@@ -206,12 +214,29 @@ async def fetch_feed(feed_name, feed_url, max_retries=3):
 
                 news_items.append(embed)
             else:
-                print(f"Entrada ya existe en caché: {entry_id}")
+                logging.debug(f"Entrada ya existe en caché: {entry_id}")
 
         return news_items
     except Exception as e:
-        print(f"Error al procesar {feed_name}: {str(e)}")
+        logging.error(f"Error al procesar {feed_name}: {str(e)}")
         return []
+
+async def enviar_noticias_agrupadas(channel, feed_name, news_items):
+    """Envía noticias agrupadas por fuente con una cabecera decorativa"""
+    if not news_items:
+        return
+
+    # Crear la cabecera decorativa
+    header = f"{'='*20} Noticias de {feed_name} {'='*20}"
+    await channel.send(f"```\n{header}\n```")
+    
+    # Enviar las noticias de esta fuente
+    for embed in news_items:
+        try:
+            await channel.send(embed=embed)
+            await asyncio.sleep(random.uniform(*MESSAGE_DELAY))
+        except Exception as e:
+            logging.error(f"Error al enviar noticia de {feed_name}: {str(e)}")
 
 @tasks.loop(seconds=UPDATE_INTERVAL)
 async def check_feeds():
@@ -224,6 +249,81 @@ async def check_feeds():
 
         channel = bot.get_channel(channel_id)
         if not channel:
+        await ctx.send("❌ No se pudo encontrar el canal configurado.")
+        return
+
+    await ctx.send("🎮 **Actualizando noticias de gaming bajo demanda...**")
+
+    news_found = False
+    for feed_name, feed_url in GAMING_FEEDS.items():
+        news_items = await fetch_feed(feed_name, feed_url)
+        if news_items:
+            news_found = True
+            await enviar_noticias_agrupadas(channel, feed_name, news_items)
+
+    if not news_found:
+        await ctx.send("No se encontraron noticias nuevas en esta actualización.")
+
+    server_config.set_last_update(ctx.guild.id, current_time)
+
+@bot.command()
+async def limpiar_cache(ctx, fuente=None):
+    """Limpia el caché del bot. Si se especifica una fuente, solo limpia esa fuente"""
+    if fuente:
+        # Verificar si la fuente existe
+        fuente_encontrada = None
+        for nombre_fuente in GAMING_FEEDS.keys():
+            if nombre_fuente.lower() == fuente.lower():
+                fuente_encontrada = nombre_fuente
+                break
+        
+        if fuente_encontrada:
+            news_cache.clear_cache(fuente_encontrada)
+            await ctx.send(f"🧹 Cache limpiado para la fuente: {fuente_encontrada}")
+        else:
+            fuentes_disponibles = "\n".join([f"• {name}" for name in GAMING_FEEDS.keys()])
+            await ctx.send(f"❌ Fuente no encontrada. Las fuentes disponibles son:\n{fuentes_disponibles}")
+    else:
+        news_cache.clear_cache()
+        await ctx.send("🧹 Cache limpiado completamente")
+
+@bot.command()
+async def forzar_actualizar(ctx):
+    """Fuerza la actualización de noticias ignorando el caché"""
+    news_cache.clear_cache()
+    await ctx.send("🔄 Cache limpiado. Forzando actualización de noticias...")
+    await actualizar(ctx)
+
+@bot.command()
+async def estadisticas(ctx):
+    """Muestra estadísticas del bot"""
+    embed = discord.Embed(title="Estadísticas del Bot", color=discord.Color.blue())
+    embed.add_field(name="Servidores activos", value=str(len(bot.guilds)))
+    embed.add_field(name="Feeds configurados", value=str(len(GAMING_FEEDS)))
+    embed.add_field(name="Última actualización", 
+                   value=format_time(server_config.get_last_update(ctx.guild.id)) if server_config.get_last_update(ctx.guild.id) else "No hay datos")
+    await ctx.send(embed=embed)
+
+@configurar_canal.error
+@desactivar_noticias.error
+async def admin_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas permisos de administrador para usar este comando.")
+
+# Iniciar el bot
+if __name__ == "__main__":
+    TOKEN = os.getenv('DISCORD_TOKEN')
+    if not TOKEN:
+        logging.error("Error: No se encontró el token de Discord en las variables de entorno")
+        exit(1)
+        
+    while True:
+        try:
+            bot.run(TOKEN)
+        except Exception as e:
+            logging.error(f"Error al conectar: {e}")
+            logging.info("Reintentando en 30 segundos...")
+            time.sleep(30)
             continue
 
         last_update = server_config.get_last_update(guild.id)
@@ -238,12 +338,7 @@ async def check_feeds():
             news_items = await fetch_feed(feed_name, feed_url)
             if news_items:
                 news_found = True
-                for embed in news_items:
-                    try:
-                        await channel.send(embed=embed)
-                        await asyncio.sleep(1)
-                    except Exception as e:
-                        print(f"Error al enviar noticia de {feed_name} en {guild.name}: {str(e)}")
+                await enviar_noticias_agrupadas(channel, feed_name, news_items)
 
         if not news_found:
             await channel.send("No se encontraron noticias nuevas en esta actualización.")
@@ -252,14 +347,13 @@ async def check_feeds():
 
 @bot.event
 async def on_ready():
-    print(f'{bot.user} ha iniciado sesión')
+    logging.info(f'{bot.user} ha iniciado sesión')
     if not check_feeds.is_running():
         check_feeds.start()
 
 @bot.event
 async def on_guild_join(guild):
     """Envía un mensaje de bienvenida cuando el bot se une a un nuevo servidor"""
-    # Buscar el primer canal donde el bot puede escribir
     for channel in guild.text_channels:
         try:
             await channel.send(
@@ -330,74 +424,3 @@ async def actualizar(ctx):
 
     channel = bot.get_channel(channel_id)
     if not channel:
-        await ctx.send("❌ No se pudo encontrar el canal configurado.")
-        return
-
-    await ctx.send("🎮 **Actualizando noticias de gaming bajo demanda...**")
-
-    news_found = False
-    for feed_name, feed_url in GAMING_FEEDS.items():
-        news_items = await fetch_feed(feed_name, feed_url)
-        if news_items:
-            news_found = True
-            for embed in news_items:
-                try:
-                    await channel.send(embed=embed)
-                    # Esperar entre 2 y 4 segundos entre mensajes para evitar rate limits
-                    await asyncio.sleep(random.uniform(2, 4))
-                except Exception as e:
-                    print(f"Error al enviar noticia de {feed_name} en {ctx.guild.name}: {str(e)}")
-
-    if not news_found:
-        await ctx.send("No se encontraron noticias nuevas en esta actualización.")
-
-    server_config.set_last_update(ctx.guild.id, current_time)
-
-@bot.command()
-async def limpiar_cache(ctx, fuente=None):
-    """Limpia el caché del bot. Si se especifica una fuente, solo limpia esa fuente"""
-    if fuente:
-        # Verificar si la fuente existe
-        fuente_encontrada = None
-        for nombre_fuente in GAMING_FEEDS.keys():
-            if nombre_fuente.lower() == fuente.lower():
-                fuente_encontrada = nombre_fuente
-                break
-        
-        if fuente_encontrada:
-            news_cache.clear_cache(fuente_encontrada)
-            await ctx.send(f"🧹 Cache limpiado para la fuente: {fuente_encontrada}")
-        else:
-            fuentes_disponibles = "\n".join([f"• {name}" for name in GAMING_FEEDS.keys()])
-            await ctx.send(f"❌ Fuente no encontrada. Las fuentes disponibles son:\n{fuentes_disponibles}")
-    else:
-        news_cache.clear_cache()
-        await ctx.send("🧹 Cache limpiado completamente")
-
-@bot.command()
-async def forzar_actualizar(ctx):
-    """Fuerza la actualización de noticias ignorando el caché"""
-    news_cache.clear_cache()  # Usa el nuevo método
-    await ctx.send("🔄 Cache limpiado. Forzando actualización de noticias...")
-    await actualizar(ctx)
-
-@configurar_canal.error
-@desactivar_noticias.error
-async def admin_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Necesitas permisos de administrador para usar este comando.")
-
-# Iniciar el bot
-if __name__ == "__main__":
-    TOKEN = os.getenv('DISCORD_TOKEN')
-    if not TOKEN:
-        print("Error: No se encontró el token de Discord en las variables de entorno")
-        exit(1)
-        
-    while True:
-        try:
-            bot.run(TOKEN)
-        except Exception as e:
-            print(f"Error al conectar: {e}")
-            print("Reintentando en 30 segundos...")
-            time.sleep(30)

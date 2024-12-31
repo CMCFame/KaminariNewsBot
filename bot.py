@@ -35,15 +35,6 @@ GAMING_FEEDS = {
     "Attack of the Fanboy": "https://attackofthefanboy.com/feed/",
     "Nintendo Everything": "https://nintendoeverything.com/feed/",
     "VGC": "https://www.videogameschronicle.com/category/news/feed/"
-    "Destructoid": "https://www.destructoid.com/feed/"
-    "GamesFuze": "https://gamesfuze.com/feed/"
-    "Xbox Wire": "https://news.xbox.com/en-us/feed/"
-    "Playstation Blog": "https://blog.playstation.com/feed/"
-    "PCGamesN": "https://www.pcgamesn.com/feed"
-    "ShackNews": "https://www.shacknews.com/feed/rss"
-    "GamesIndustry": "http://www.gamesindustry.biz/rss/gamesindustry_news_feed.rss"
-    "Escapist Magazine": "https://www.escapistmagazine.com/feed/"
-    "Niche Gamer": "https://nichegamer.com/feed/"
 }
 
 UPDATE_INTERVAL = 10800  # 3 horas en segundos

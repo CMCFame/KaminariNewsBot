@@ -16,16 +16,6 @@ bot = commands.Bot(command_prefix="$", intents=intents)
 
 # Lista de feeds RSS de gaming
 GAMING_FEEDS = {
-    "Destructoid": "https://www.destructoid.com/feed/",
-    "GamesFuze": "https://gamesfuze.com/feed/",
-    "Xbox Wire": "https://news.xbox.com/en-us/feed/",
-    "Playstation Blog": "https://blog.playstation.com/feed/",
-    "PCGamesN": "https://www.pcgamesn.com/feed",
-    "ShackNews": "https://www.shacknews.com/feed/rss",
-    "GamesIndustry": "http://www.gamesindustry.biz/rss/gamesindustry_news_feed.rss",
-    "Escapist Magazine": "https://www.escapistmagazine.com/feed/",
-    "Niche Gamer": "https://nichegamer.com/feed/"
-,
     "Kotaku": "https://kotaku.com/rss",
     "VG247": "https://www.vg247.com/feed/news",
     "Touch Arcade": "https://toucharcade.com/feed/",
@@ -303,13 +293,7 @@ async def check_feeds():
         server_config.set_last_update(guild.id, current_time)
 
 @bot.event
-
 async def on_ready():
-    if not check_feeds.is_running():
-        check_feeds.start()
-    else:
-        print("El loop de check_feeds ya está en ejecución.")
-
     print(f'{bot.user} ha iniciado sesión')
     if not check_feeds.is_running():
         check_feeds.start()
@@ -403,14 +387,7 @@ async def actualizar(ctx):
         await ctx.send("❌ No se pudo encontrar el canal configurado.")
         return
 
-    
     await ctx.send("🎮 **Actualizando noticias de gaming bajo demanda...**")
-    for feed_name, feed_url in GAMING_FEEDS.items():
-        news_items = await fetch_feed(feed_name, feed_url)
-        if news_items:
-            header = f"▓▓▓▓▓▓▓▓▓▓ Noticias de {feed_name} ▓▓▓▓▓▓▓▓▓▓"
-            await ctx.send(f"**{header}**")
-
 
     news_found = False
     for feed_name, feed_url in GAMING_FEEDS.items():

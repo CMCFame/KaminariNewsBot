@@ -180,30 +180,33 @@ async def send_with_rate_limit(channel, content=None, embed=None):
         logger.error(f"Error sending message: {str(e)}")
 
 async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
-    async def try_fetch_with_backoff(attempt):
+    async def try_fetch_with_backoff(attempt, redirect_count=0):
         try:
             if attempt > 0:
                 delay = min(300, (2 ** attempt) + (random.randint(0, 1000) / 1000))
                 await asyncio.sleep(delay)
             
-            import ssl
-            if hasattr(ssl, '_create_unverified_context'):
-                ssl._create_default_https_context = ssl._create_unverified_context
+            # Set up feedparser with timeout
+            import socket
+            socket.setdefaulttimeout(10)  # 10 seconds timeout
             
-            feed = feedparser.parse(feed_url)
+            # If we've been redirected too many times, skip this feed
+            if redirect_count >= 3:
+                logger.warning(f"Too many redirects for {feed_name}, skipping")
+                return None
+            
+            feed = feedparser.parse(feed_url, timeout=10)
             
             if hasattr(feed, 'status'):
                 if feed.status in [301, 302, 307, 308]:
                     if 'href' in feed and feed.href != feed_url:
                         logger.info(f"Redirecting {feed_name} to: {feed.href}")
-                        return await try_fetch_with_backoff(0)
-                elif feed.status == 429:
+                        return await try_fetch_with_backoff(0, redirect_count + 1)
+                elif feed.status == 429:  # Too Many Requests
                     if attempt < max_retries:
                         logger.warning(f"Rate limit reached for {feed_name}, retrying...")
-                        return await try_fetch_with_backoff(attempt + 1)
-                    else:
-                        logger.error(f"Max retries reached for {feed_name}")
-                        return None
+                        await asyncio.sleep(5 * (attempt + 1))  # Increased backoff
+                        return await try_fetch_with_backoff(attempt + 1, redirect_count)
                 elif feed.status != 200:
                     logger.error(f"Error fetching {feed_name}: Status {feed.status}")
                     return None
@@ -213,7 +216,7 @@ async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
         except Exception as e:
             logger.error(f"Error processing {feed_name}: {str(e)}")
             if attempt < max_retries:
-                return await try_fetch_with_backoff(attempt + 1)
+                return await try_fetch_with_backoff(attempt + 1, redirect_count)
             return None
 
     try:
@@ -224,66 +227,65 @@ async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
         news_items = []
         logger.info(f"Processing {feed_name}: {len(feed.entries)} entries found")
         
+        # Only process the last 5 entries to avoid overload
         for entry in feed.entries[:5]:
             if news_cache.is_new_entry(feed_name, entry):
-                logger.info(f"New entry found in {feed_name}")
                 try:
                     title = entry.get('title', 'Sin título')
                     
-                    # Process link URL with the new function
+                    # Process link URL
                     raw_link = entry.get('link', '#')
                     if isinstance(raw_link, dict):
                         raw_link = raw_link.get('href', '#')
-                    link = await process_feed_url(raw_link)
+                    
+                    # Strip out tracking parameters
+                    if '?' in raw_link:
+                        raw_link = raw_link.split('?')[0]
                     
                     published = entry.get('published', 'Fecha no disponible')
                     
-                    # Get categories
-                    categories = []
-                    if 'tags' in entry:
-                        categories = [tag['term'] for tag in entry.get('tags', [])]
-                    elif 'categories' in entry:
-                        categories = entry.get('categories', [])
-                    categories_str = ', '.join(categories) if categories else 'Sin categorías'
-
-                    # Find and process image URL
-                    image_url = None
-                    try:
-                        if 'media_thumbnail' in entry and entry['media_thumbnail']:
-                            image_url = await process_feed_url(entry['media_thumbnail'][0].get('url'))
-                        elif 'media_content' in entry and entry['media_content']:
-                            image_url = await process_feed_url(entry['media_content'][0].get('url'))
-                        elif hasattr(entry, 'links'):
-                            for link_item in entry.links:
-                                if isinstance(link_item, dict) and link_item.get('type', '').startswith('image/'):
-                                    image_url = await process_feed_url(link_item.get('href'))
-                                    break
-                    except Exception as e:
-                        logger.error(f"Error processing image for {feed_name}: {str(e)}")
-                        image_url = None
-
-                    # Create embed with validated URLs
+                    # Create basic embed first
                     embed = discord.Embed(
-                        title=title[:256],  # Discord title limit
-                        url=link if link else discord.Embed.Empty,
-                        color=discord.Color.blue(),
-                        description=entry.get('summary', '')[:2048]  # Discord description limit
+                        title=title[:256],
+                        url=raw_link,
+                        color=discord.Color.blue()
                     )
+                    
+                    # Add summary if available (with length limit)
+                    summary = entry.get('summary', '')
+                    if summary:
+                        embed.description = summary[:2048]
                     
                     embed.set_footer(text=f"Fuente: {feed_name} | Publicado: {published}")
                     
-                    if categories_str:
-                        embed.add_field(name="Categorías", value=categories_str[:1024], inline=False)
+                    # Only add image if it exists and is valid
+                    image_url = None
+                    media_content = entry.get('media_content', [])
+                    media_thumbnail = entry.get('media_thumbnail', [])
+                    
+                    if media_content and isinstance(media_content, list):
+                        for media in media_content:
+                            if isinstance(media, dict) and 'url' in media:
+                                image_url = media['url']
+                                break
+                    
+                    if not image_url and media_thumbnail and isinstance(media_thumbnail, list):
+                        for media in media_thumbnail:
+                            if isinstance(media, dict) and 'url' in media:
+                                image_url = media['url']
+                                break
                     
                     if image_url:
                         try:
-                            embed.set_thumbnail(url=image_url)
+                            if image_url.startswith(('http://', 'https://')):
+                                embed.set_thumbnail(url=image_url)
                         except Exception as e:
                             logger.error(f"Error setting thumbnail for {feed_name}: {str(e)}")
 
                     news_items.append(embed)
+                    
                 except Exception as e:
-                    logger.error(f"Error creating embed for {feed_name}: {str(e)}")
+                    logger.error(f"Error processing entry for {feed_name}: {str(e)}")
                     continue
 
         return news_items

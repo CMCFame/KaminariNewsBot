@@ -62,6 +62,26 @@ UPDATE_INTERVAL = 10800  # 3 hours in seconds
 MAX_RETRIES = 3
 RATE_LIMIT_DELAY = 2  # seconds between messages
 
+# Nueva función para extraer URLs de diferentes formatos de enlaces
+def extract_url(link):
+    """
+    Extrae la URL de diferentes formatos de enlaces que pueden venir en los feeds RSS.
+    
+    Args:
+        link: Puede ser una cadena de texto (URL directa), un diccionario con 'href',
+              o una lista de diccionarios con 'href'.
+    
+    Returns:
+        str: La URL extraída o '#' si no se encuentra ninguna URL válida.
+    """
+    if isinstance(link, str):
+        return link
+    elif isinstance(link, list) and link:
+        return extract_url(link[0])
+    elif isinstance(link, dict):
+        return link.get('href', '#')
+    return '#'
+
 class ServerConfig:
     def __init__(self, config_file="server_config.json"):
         self.config_file = config_file
@@ -214,10 +234,9 @@ async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
                 logger.info(f"New entry found in {feed_name}")
                 title = entry.get('title', 'Sin título')
                 
-                # Process link URL
-                link = entry.get('link', '#')
-                if isinstance(link, dict):
-                    link = link.get('href', '#')
+                # Proceso mejorado de la URL del enlace
+                raw_link = entry.get('link', '#')
+                link = extract_url(raw_link)
                 
                 # Remove UTM parameters
                 if '?' in link:
@@ -237,13 +256,13 @@ async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
                 image_url = None
                 try:
                     if 'media_thumbnail' in entry and entry['media_thumbnail']:
-                        image_url = entry['media_thumbnail'][0].get('url')
+                        image_url = extract_url(entry['media_thumbnail'][0].get('url', ''))
                     elif 'media_content' in entry and entry['media_content']:
-                        image_url = entry['media_content'][0].get('url')
+                        image_url = extract_url(entry['media_content'][0].get('url', ''))
                     elif hasattr(entry, 'links'):
-                        for link in entry.links:
-                            if isinstance(link, dict) and link.get('type', '').startswith('image/'):
-                                image_url = link.get('href')
+                        for link_item in entry.links:
+                            if isinstance(link_item, dict) and link_item.get('type', '').startswith('image/'):
+                                image_url = extract_url(link_item)
                                 break
 
                     if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):

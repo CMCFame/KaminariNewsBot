@@ -31,12 +31,8 @@ bot = commands.Bot(command_prefix="$", intents=intents)
 # Updated Gaming RSS feeds list
 GAMING_FEEDS = {
     "Destructoid": "https://www.destructoid.com/feed/",
-    "GamesFuze": "https://gamesfuze.com/feed/",
     "Xbox Wire": "https://news.xbox.com/en-us/feed/",
-    "Playstation Blog": "https://blog.playstation.com/feed/",
-    "ShackNews": "https://www.shacknews.com/feed/rss",
     "Escapist Magazine": "https://www.escapistmagazine.com/feed/",
-    "Niche Gamer": "https://nichegamer.com/feed/",
     "Kotaku": "https://kotaku.com/rss",
     "VG247": "https://www.vg247.com/feed/news",
     "Touch Arcade": "https://toucharcade.com/feed/",
@@ -45,15 +41,12 @@ GAMING_FEEDS = {
     "Polygon": "https://www.polygon.com/rss/index.xml",
     "DualShockers": "https://www.dualshockers.com/feed/",
     "Gematsu": "https://www.gematsu.com/feed",
-    "Rock Paper Shotgun": "https://www.rockpapershotgun.com/feed/news",
     "PC Gamer": "https://www.pcgamer.com/rss/",
     "Eurogamer": "https://www.eurogamer.net/feed",
     "Twinfinite": "https://twinfinite.net/feed/",
     "Push Square": "https://www.pushsquare.com/feeds/latest",
-    "Gamepur": "https://www.gamepur.com/feed",
     "Pocket Gamer": "https://pocket4957.rssing.com/chan-78169779/index-latest.php",
     "Siliconera": "https://www.siliconera.com/feed/",
-    "Attack of the Fanboy": "https://attackofthefanboy.com/feed/",
     "Nintendo Everything": "https://nintendoeverything.com/feed/",
     "VGC": "https://www.videogameschronicle.com/category/news/feed/"
 }
@@ -234,7 +227,7 @@ async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
                 logger.info(f"New entry found in {feed_name}")
                 title = entry.get('title', 'Sin título')
                 
-                # Proceso mejorado de la URL del enlace
+                # Proceso del link
                 raw_link = entry.get('link', '#')
                 link = extract_url(raw_link)
                 
@@ -244,13 +237,10 @@ async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
 
                 published = entry.get('published', 'Fecha no disponible')
                 
-                # Get categories
-                categories = []
-                if 'tags' in entry:
-                    categories = [tag['term'] for tag in entry.get('tags', [])]
-                elif 'categories' in entry:
-                    categories = entry.get('categories', [])
-                categories_str = ', '.join(categories) if categories else 'Sin categorías'
+                # Obtener y procesar el resumen
+                summary = entry.get('summary', '')
+                if len(summary) > 300:
+                    summary = summary[:297] + "..."
 
                 # Find image URL
                 image_url = None
@@ -274,11 +264,12 @@ async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
                 embed = discord.Embed(
                     title=title,
                     url=link,
+                    description=summary if summary else None,
                     color=discord.Color.blue()
                 )
+                
                 embed.set_footer(text=f"Fuente: {feed_name} | Publicado: {published}")
-                if categories_str:
-                    embed.add_field(name="Categorías", value=categories_str, inline=False)
+                
                 if image_url:
                     embed.set_thumbnail(url=image_url)
 

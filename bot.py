@@ -37,6 +37,26 @@ def clean_html(text):
     # Limpiar espacios al inicio y final
     text = text.strip()
     return text
+    
+# Añadir esta función justo después de clean_html y antes de la configuración del bot
+def extract_url(link):
+    """
+    Extrae la URL de diferentes formatos de enlaces que pueden venir en los feeds RSS.
+    
+    Args:
+        link: Puede ser una cadena de texto (URL directa), un diccionario con 'href',
+              o una lista de diccionarios con 'href'.
+    
+    Returns:
+        str: La URL extraída o '#' si no se encuentra ninguna URL válida.
+    """
+    if isinstance(link, str):
+        return link
+    elif isinstance(link, list) and link:
+        return extract_url(link[0])
+    elif isinstance(link, dict):
+        return link.get('href', '#')
+    return '#'
 
 # Discord bot configuration
 intents = discord.Intents.default()

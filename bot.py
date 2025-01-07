@@ -7,6 +7,7 @@ import time
 import random
 import logging
 import hashlib
+import re  # Nueva importación
 from datetime import datetime
 from discord.ext import commands, tasks
 
@@ -21,6 +22,21 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Función para limpiar HTML
+def clean_html(text):
+    """
+    Elimina las etiquetas HTML del texto y limpia el contenido.
+    """
+    # Eliminar tags img completos
+    text = re.sub(r'<img[^>]+>', '', text)
+    # Eliminar otros tags HTML
+    text = re.sub(r'<[^>]+>', '', text)
+    # Eliminar múltiples espacios
+    text = re.sub(r'\s+', ' ', text)
+    # Limpiar espacios al inicio y final
+    text = text.strip()
+    return text
 
 # Discord bot configuration
 intents = discord.Intents.default()
@@ -54,26 +70,6 @@ GAMING_FEEDS = {
 UPDATE_INTERVAL = 10800  # 3 hours in seconds
 MAX_RETRIES = 3
 RATE_LIMIT_DELAY = 2  # seconds between messages
-
-# Nueva función para extraer URLs de diferentes formatos de enlaces
-def extract_url(link):
-    """
-    Extrae la URL de diferentes formatos de enlaces que pueden venir en los feeds RSS.
-    
-    Args:
-        link: Puede ser una cadena de texto (URL directa), un diccionario con 'href',
-              o una lista de diccionarios con 'href'.
-    
-    Returns:
-        str: La URL extraída o '#' si no se encuentra ninguna URL válida.
-    """
-    if isinstance(link, str):
-        return link
-    elif isinstance(link, list) and link:
-        return extract_url(link[0])
-    elif isinstance(link, dict):
-        return link.get('href', '#')
-    return '#'
 
 class ServerConfig:
     def __init__(self, config_file="server_config.json"):
@@ -237,8 +233,9 @@ async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
 
                 published = entry.get('published', 'Fecha no disponible')
                 
-                # Obtener y procesar el resumen
+                # Obtener y limpiar el resumen
                 summary = entry.get('summary', '')
+                summary = clean_html(summary)  # Aplicamos la limpieza de HTML
                 if len(summary) > 300:
                     summary = summary[:297] + "..."
 
@@ -279,7 +276,6 @@ async def fetch_feed(feed_name, feed_url, max_retries=MAX_RETRIES):
     except Exception as e:
         logger.error(f"Error processing {feed_name}: {str(e)}")
         return []
-
 @tasks.loop(seconds=UPDATE_INTERVAL)
 async def check_feeds():
     current_time = datetime.now()
@@ -322,10 +318,6 @@ async def check_feeds():
             await send_with_rate_limit(channel, content="No se encontraron noticias nuevas en esta actualización.")
 
         server_config.set_last_update(guild.id, current_time)
-
-# [Rest of the commands remain the same as in your original code]
-# I'll continue with the rest of the code in the next part due to length...
-# Bot Events and Commands
 
 @bot.event
 async def on_ready():
@@ -408,7 +400,6 @@ async def estado(ctx):
         color=discord.Color.blue()
     )
     await ctx.send(embed=embed)
-
 @bot.command()
 async def actualizar(ctx):
     """Actualiza las noticias bajo demanda"""

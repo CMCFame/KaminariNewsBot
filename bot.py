@@ -68,7 +68,6 @@ bot = commands.Bot(command_prefix="$", intents=intents)
 GAMING_FEEDS = {
     "Destructoid": "https://www.destructoid.com/feed/",
     "Xbox Wire": "https://news.xbox.com/en-us/feed/",
-    "Escapist Magazine": "https://www.escapistmagazine.com/feed/",
     "Kotaku": "https://kotaku.com/rss",
     "VG247": "https://www.vg247.com/feed/news",
     "Touch Arcade": "https://toucharcade.com/feed/",
